@@ -168,7 +168,7 @@ namespace NuGet.TeamFoundationServer
 
         public override void DeleteFiles(IEnumerable<IPackageFile> files, string rootDir)
         {
-            HashSet<string> filesToDelete = new HashSet<string>();
+            HashSet<string> filesToPendDelete = new HashSet<string>();
             foreach (var file in files)
             {
                 var fullPath = GetFullPath(Path.Combine(rootDir, file.Path));
@@ -176,7 +176,7 @@ namespace NuGet.TeamFoundationServer
                 {
                     if (FileSystemExtensions.ContentEqual(this, fullPath, file.GetStream))
                     {
-                        filesToDelete.Add(fullPath);
+                        filesToPendDelete.Add(fullPath);
                     }
                     else
                     {
@@ -185,7 +185,23 @@ namespace NuGet.TeamFoundationServer
                 }
             }
 
-            Workspace.PendDelete(filesToDelete, RecursionType.None);
+            var t1 = DateTime.Now;
+            List<ITfsPendingChange> pendingChanges = Workspace.GetPendingChanges(
+                GetFullPath(rootDir), RecursionType.Full).ToList();
+            var t2 = DateTime.Now;
+            var timeUsed = (t2 - t1).TotalMilliseconds;
+            Workspace.Undo(pendingChanges);
+
+            foreach (var pendingChange in pendingChanges)
+            {
+                if (pendingChange.IsAdd)
+                {
+                    filesToPendDelete.Remove(pendingChange.LocalItem);
+                    base.DeleteFile(pendingChange.LocalItem);
+                }
+            }
+
+            Workspace.PendDelete(filesToPendDelete, RecursionType.None);
         }
 
         public bool BindToSourceControl(IEnumerable<string> paths)
